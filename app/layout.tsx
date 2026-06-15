@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "사진 첨부 보고서 생성기",
+  title: "보고서 사진 첨부",
   description: "Word 파일에 사진을 3열 표로 자동 첨부하여 다운로드",
 };
 

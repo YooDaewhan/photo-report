@@ -76,7 +76,7 @@ export default function Home() {
     <main className="min-h-screen bg-gray-100 flex items-center justify-center p-6">
       <div className="bg-white rounded-2xl shadow-md w-full max-w-lg p-8 space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">사진 첨부 보고서 생성기</h1>
+          <h1 className="text-2xl font-bold text-gray-800">보고서 사진 첨부</h1>
           <p className="mt-1 text-sm text-gray-500">
             Word 파일 맨 아래에 사진을 가로 3열 표로 자동 첨부합니다.
           </p>
