@@ -27,8 +27,9 @@ export async function POST(req: NextRequest) {
     );
 
     const columns = parseInt(formData.get('columns') as string ?? '3', 10) || 3;
+    const rows    = parseInt(formData.get('rows')    as string ?? '4', 10) || 4;
 
-    const resultBuffer = await buildReport(docxBuffer, photos, columns);
+    const resultBuffer = await buildReport(docxBuffer, photos, columns, rows);
 
     return new NextResponse(new Uint8Array(resultBuffer), {
       status: 200,

@@ -19,15 +19,40 @@ type MaybeImage = ImageData | null;
 // → cell content width (px) = (colW_dxa - padding_dxa) * 635 / 9525
 //                            = (colW_dxa - padding_dxa) / 15
 const CELL_PADDING_DXA = 57 * 2; // 57 dxa each side
-const TABLE_WIDTH_DXA = 9360;    // standard content width (6.5 inch)
 const EMU_PER_PX = 9525;
+
+/** 문서의 페이지 크기와 여백을 읽어 실제 본문 너비(dxa)를 반환한다. */
+function getContentWidthDxa(docXml: string): number {
+  const pgSzMatch  = docXml.match(/<w:pgSz\b([^/]*)\//);
+  const pgMarMatch = docXml.match(/<w:pgMar\b([^/]*)\//);
+
+  // 페이지 너비 (기본: US Letter 12240 dxa)
+  let pgW = 12240;
+  if (pgSzMatch) {
+    const m = pgSzMatch[1].match(/\bw:w="(\d+)"/);
+    if (m) pgW = parseInt(m[1]);
+  }
+
+  // 좌우 여백 (기본: 1800 dxa = 1.25 inch)
+  let left = 1800, right = 1800;
+  if (pgMarMatch) {
+    const lm = pgMarMatch[1].match(/\bw:left="(\d+)"/);
+    const rm = pgMarMatch[1].match(/\bw:right="(\d+)"/);
+    if (lm) left  = parseInt(lm[1]);
+    if (rm) right = parseInt(rm[1]);
+  }
+
+  return Math.max(pgW - left - right, 5040); // 최소 3.5 inch
+}
 
 export async function buildReport(
   docxBuffer: Buffer,
   photos: { name: string; buffer: Buffer }[],
-  columns: number = 3
+  columns: number = 3,
+  rows: number = 4
 ): Promise<Buffer> {
-  const cols = Math.max(1, Math.min(6, columns)); // clamp 1–6
+  const cols = Math.max(1, Math.min(6, columns));
+  const rowsPerPage = Math.max(1, Math.min(10, rows));
 
   const zip = new PizZip(docxBuffer);
 
@@ -47,8 +72,9 @@ export async function buildReport(
   const existingIds = [...relsXml.matchAll(/\bId="rId(\d+)"/g)].map(m => parseInt(m[1], 10));
   let nextRId = existingIds.length > 0 ? Math.max(...existingIds) + 1 : 100;
 
-  // Cell content width in pixels (used as target resize width)
-  const colW = Math.floor(TABLE_WIDTH_DXA / cols);
+  // 문서 본문 너비를 동적으로 읽어 열 너비 계산
+  const tableWidthDxa = getContentWidthDxa(docXml);
+  const colW = Math.floor(tableWidthDxa / cols);
   const contentWidthPx = Math.round((colW - CELL_PADDING_DXA) / 15);
 
   // Resize each image to fill cell width, maintaining aspect ratio
@@ -104,7 +130,7 @@ export async function buildReport(
   docXml = ensureNamespaces(docXml);
 
   // Build the photo section and insert before the final <w:sectPr> (or before </w:body>)
-  const sectionXml = buildPhotoSection(images, cols, colW);
+  const sectionXml = buildPhotoSection(images, cols, rowsPerPage, colW, tableWidthDxa);
   docXml = insertBeforeSectPr(docXml, sectionXml);
 
   zip.file('word/document.xml', docXml);
@@ -147,23 +173,35 @@ function insertBeforeSectPr(docXml: string, insertXml: string): string {
   return docXml.replace('</w:body>', insertXml + '\n</w:body>');
 }
 
-/** Build page-break + heading + N-column photo table XML. */
-function buildPhotoSection(images: ImageData[], cols: number, colW: number): string {
-  const rows: string[] = [];
-
-  for (let i = 0; i < images.length; i += cols) {
-    const chunk: MaybeImage[] = images.slice(i, i + cols);
-    while (chunk.length < cols) chunk.push(null);
-
-    rows.push(`<w:tr>${chunk.map((img, j) => buildImageCell(img, i + j + 1, colW)).join('')}</w:tr>`);
-    rows.push(`<w:tr>${chunk.map(img => buildNameCell(img?.name ?? '', colW)).join('')}</w:tr>`);
-  }
-
+/** Build page-break + heading + N-column photo table XML.
+ *  photos are split into pages of (cols × rowsPerPage). */
+function buildPhotoSection(
+  images: ImageData[],
+  cols: number,
+  rowsPerPage: number,
+  colW: number,
+  tableWidthDxa: number
+): string {
+  const photosPerPage = cols * rowsPerPage;
   const gridCols = Array.from({ length: cols }, () => `<w:gridCol w:w="${colW}"/>`).join('');
 
-  const table = `<w:tbl>
+  const buildTable = (pageImages: ImageData[], idOffset: number): string => {
+    const tableRows: string[] = [];
+    for (let i = 0; i < pageImages.length; i += cols) {
+      const chunk: MaybeImage[] = pageImages.slice(i, i + cols);
+      while (chunk.length < cols) chunk.push(null);
+      tableRows.push(
+        `<w:tr>${chunk.map((img, j) => buildImageCell(img, idOffset + i + j + 1, colW)).join('')}</w:tr>`
+      );
+      tableRows.push(
+        `<w:tr>${chunk.map(img => buildNameCell(img?.name ?? '', colW)).join('')}</w:tr>`
+      );
+    }
+
+    return `<w:tbl>
   <w:tblPr>
-    <w:tblW w:w="${TABLE_WIDTH_DXA}" w:type="dxa"/>
+    <w:tblW w:w="${tableWidthDxa}" w:type="dxa"/>
+    <w:tblInd w:w="0" w:type="dxa"/>
     <w:tblLayout w:type="fixed"/>
     <w:tblBorders>
       <w:top     w:val="single" w:sz="4" w:space="0" w:color="auto"/>
@@ -181,12 +219,11 @@ function buildPhotoSection(images: ImageData[], cols: number, colW: number): str
     </w:tblCellMar>
   </w:tblPr>
   <w:tblGrid>${gridCols}</w:tblGrid>
-  ${rows.join('\n  ')}
+  ${tableRows.join('\n  ')}
 </w:tbl>`;
+  };
 
-  return (
-    `<w:p><w:r><w:br w:type="page"/></w:r></w:p>\n` +
-    `<w:p>
+  const heading = `<w:p>
   <w:pPr>
     <w:jc w:val="center"/>
     <w:spacing w:before="240" w:after="240"/>
@@ -195,9 +232,23 @@ function buildPhotoSection(images: ImageData[], cols: number, colW: number): str
     <w:rPr><w:b/><w:sz w:val="36"/><w:szCs w:val="36"/></w:rPr>
     <w:t>사진 첨부</w:t>
   </w:r>
-</w:p>\n` +
-    table
-  );
+</w:p>`;
+
+  const pageBreak = `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;
+
+  const parts: string[] = [];
+  for (let p = 0; p < images.length; p += photosPerPage) {
+    const pageImages = images.slice(p, p + photosPerPage);
+    if (p === 0) {
+      // 첫 페이지: 페이지 브레이크 + 제목 + 표
+      parts.push(pageBreak + '\n' + heading + '\n' + buildTable(pageImages, 0));
+    } else {
+      // 이후 페이지: 페이지 브레이크 + 표 (제목 없음)
+      parts.push(pageBreak + '\n' + buildTable(pageImages, p));
+    }
+  }
+
+  return parts.join('\n');
 }
 
 /** Cell containing a centered image that fills the cell width. */

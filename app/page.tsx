@@ -8,6 +8,7 @@ export default function Home() {
   const [docxFile, setDocxFile] = useState<File | null>(null);
   const [photoFiles, setPhotoFiles] = useState<File[]>([]);
   const [columns, setColumns] = useState(3);
+  const [rows, setRows] = useState(4);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<Status>(null);
 
@@ -29,6 +30,7 @@ export default function Home() {
       const formData = new FormData();
       formData.append('docx', docxFile);
       formData.append('columns', String(columns));
+      formData.append('rows', String(rows));
       for (const photo of photoFiles) {
         formData.append('photos', photo);
       }
@@ -109,15 +111,26 @@ export default function Home() {
                 사진 파일{' '}
                 <span className="text-gray-400">(jpg / jpeg / png / webp, 여러 장 가능)</span>
               </label>
-              <select
-                value={columns}
-                onChange={e => setColumns(Number(e.target.value))}
-                className="text-xs text-gray-600 border border-gray-300 rounded px-2 py-1 bg-white"
-              >
-                {[2, 3, 4, 5].map(n => (
-                  <option key={n} value={n}>{n}열</option>
-                ))}
-              </select>
+              <div className="flex gap-1">
+                <select
+                  value={columns}
+                  onChange={e => setColumns(Number(e.target.value))}
+                  className="text-xs text-gray-600 border border-gray-300 rounded px-2 py-1 bg-white"
+                >
+                  {[2, 3, 4, 5].map(n => (
+                    <option key={n} value={n}>{n}열</option>
+                  ))}
+                </select>
+                <select
+                  value={rows}
+                  onChange={e => setRows(Number(e.target.value))}
+                  className="text-xs text-gray-600 border border-gray-300 rounded px-2 py-1 bg-white"
+                >
+                  {[2, 3, 4, 5, 6].map(n => (
+                    <option key={n} value={n}>{n}행</option>
+                  ))}
+                </select>
+              </div>
             </div>
             <input
               type="file"
